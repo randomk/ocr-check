@@ -10,6 +10,9 @@ import json
 from pydantic import BaseModel
 import uvicorn
 from tempfile import NamedTemporaryFile
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class SearchRequest(BaseModel):
