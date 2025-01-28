@@ -1,4 +1,7 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 import boto3
 import os
@@ -37,14 +40,37 @@ class OCRService:
         Faz upload do arquivo para S3
         """
         try:
-            self.s3.put_object(
-                Bucket=bucket,
-                Key=filename,
-                Body=file_content
-            )
-            return f"s3://{bucket}/{filename}"
+            print(f"Iniciando upload para S3: bucket={bucket}, filename={filename}")
+
+            # Extrai apenas o nome do bucket do ARN se necessário
+            bucket_name = bucket.split(":")[-1] if "arn:aws:s3" in bucket else bucket
+            print(f"Usando bucket name: {bucket_name}")
+
+            # Tenta listar o bucket para verificar acesso
+            try:
+                self.s3.head_bucket(Bucket=bucket_name)
+                print("Bucket verificado com sucesso")
+            except Exception as e:
+                print(f"Erro ao verificar bucket: {str(e)}")
+                raise Exception(f"Erro ao acessar bucket: {str(e)}")
+
+            # Faz o upload
+            try:
+                self.s3.put_object(
+                    Bucket=bucket_name,
+                    Key=filename,
+                    Body=file_content
+                )
+                print(f"Arquivo {filename} enviado com sucesso para {bucket_name}")
+                return f"s3://{bucket_name}/{filename}"
+            except Exception as e:
+                print(f"Erro no upload do arquivo: {str(e)}")
+                raise Exception(f"Erro no upload: {str(e)}")
+
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Erro no upload para S3: {str(e)}")
+            error_msg = f"Erro no upload para S3: {str(e)}"
+            print(error_msg)
+            raise HTTPException(status_code=500, detail=error_msg)
 
     def extract_text_from_document(self, bucket: str, document_key: str) -> str:
         """
@@ -162,23 +188,53 @@ class OCRService:
         Processa o documento completo
         """
         try:
+            print(f"Iniciando processamento do documento {filename}")
+
             # Upload do arquivo
-            self.upload_to_s3(file_content, filename, bucket)
+            try:
+                self.upload_to_s3(file_content, filename, bucket)
+                print("Arquivo enviado para S3 com sucesso")
+            except Exception as e:
+                print(f"Erro no upload para S3: {str(e)}")
+                raise
 
             # Extrai texto
-            extracted_text = self.extract_text_from_document(bucket, filename)
+            try:
+                extracted_text = self.extract_text_from_document(bucket, filename)
+                print("Texto extraído com sucesso")
+                print(f"Texto extraído: {extracted_text[:200]}...")  # Primeiros 200 caracteres
+            except Exception as e:
+                print(f"Erro na extração de texto: {str(e)}")
+                raise
 
             # Procura nomes
-            found_names = self.search_names(extracted_text, registered_names)
+            try:
+                found_names = self.search_names(extracted_text, registered_names)
+                print(f"Nomes encontrados: {found_names}")
+            except Exception as e:
+                print(f"Erro na busca de nomes: {str(e)}")
+                raise
 
             # Extrai data de nascimento e calcula idade
-            date_of_birth = self.extract_date_of_birth(extracted_text)
-            age_info = None
-            if date_of_birth:
-                age_info = self.calculate_age(date_of_birth)
+            try:
+                date_of_birth = self.extract_date_of_birth(extracted_text)
+                if date_of_birth:
+                    age_info = self.calculate_age(date_of_birth)
+                    print(f"Informações de idade: {age_info}")
+                else:
+                    age_info = None
+                    print("Data de nascimento não encontrada")
+            except Exception as e:
+                print(f"Erro no cálculo de idade: {str(e)}")
+                age_info = None
 
             # Remove o arquivo do S3 após processamento
-            self.s3.delete_object(Bucket=bucket, Key=filename)
+            try:
+                self.s3.delete_object(Bucket=bucket, Key=filename)
+                print("Arquivo removido do S3")
+            except Exception as e:
+                print(f"Erro ao remover arquivo do S3: {str(e)}")
+                # Não levanta exceção aqui pois o processamento já foi concluído
 
             return {
                 'status': 'success',
@@ -190,8 +246,15 @@ class OCRService:
             }
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            print(f"Erro no processamento do documento: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Erro no processamento do documento: {str(e)}"
+            )
 
+
+# Configuração dos templates
+templates = Jinja2Templates(directory="templates")
 
 # Inicializa FastAPI
 app = FastAPI(
@@ -209,12 +272,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Inicializa serviço OCR
+# Inicializa serviço OCR com verificação
+aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
+aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+aws_region = os.getenv('AWS_REGION', 'us-east-1')
+
+if not aws_access_key or not aws_secret_key:
+    print("⚠️ Atenção: Credenciais AWS não configuradas!")
+
+# Inicializa o serviço OCR
 ocr_service = OCRService(
-    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-    region_name=os.getenv('AWS_REGION', 'us-east-1')
+    aws_access_key_id=aws_access_key,
+    aws_secret_access_key=aws_secret_key,
+    region_name=aws_region
 )
+
+
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    """
+    Renderiza a página inicial com o formulário de upload
+    """
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+# Rota de healthcheck
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
 
 @app.post("/process")
