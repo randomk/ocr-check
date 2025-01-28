@@ -1,13 +1,13 @@
 {
 	"info": {
 		"_postman_id": "a8b9c0d1-e2f3-4g5h-6i7j-8k9l0m1n2o3p",
-		"name": "AWS OCR API",
-		"description": "API para extração de texto e busca de nomes em documentos usando AWS Textract",
+		"name": "AWS OCR API with Age Verification",
+		"description": "API for text extraction, name search, and age verification using AWS Textract",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
 		{
-			"name": "Process Document",
+			"name": "Process Document with Age Verification",
 			"request": {
 				"method": "POST",
 				"header": [],
@@ -18,13 +18,13 @@
 							"key": "file",
 							"type": "file",
 							"src": "",
-							"description": "Documento para processamento (PDF, PNG, JPEG)"
+							"description": "Document for processing (PDF, PNG, JPEG) - Must be an ID document"
 						},
 						{
 							"key": "search_request",
 							"value": "{\"names\": [\"João Silva\", \"Maria Santos\"]}",
 							"type": "text",
-							"description": "JSON com lista de nomes para buscar"
+							"description": "JSON with list of names to search"
 						}
 					]
 				},
@@ -37,11 +37,11 @@
 						"process"
 					]
 				},
-				"description": "Endpoint para processar documentos e buscar nomes.\n\n**Parâmetros:**\n- file: Arquivo a ser processado (PDF, PNG, JPEG)\n- search_request: JSON string contendo lista de nomes para buscar\n\n**Exemplo de search_request:**\n```json\n{\n    \"names\": [\"João Silva\", \"Maria Santos\"]\n}\n```\n\n**Resposta de Sucesso (200):**\n```json\n{\n    \"status\": \"success\",\n    \"text\": \"texto extraído do documento...\",\n    \"found_names\": {\n        \"joão silva\": [1, 5],\n        \"maria santos\": [3]\n    }\n}\n```\n\n**Erros Possíveis:**\n- 400: JSON inválido ou formato incorreto\n- 500: Erro no processamento do documento"
+				"description": "Endpoint to process documents, search for names, and verify age.\n\n**Parameters:**\n- file: Document to process (PDF, PNG, JPEG)\n- search_request: JSON string containing list of names to search\n\n**Example search_request:**\n```json\n{\n    \"names\": [\"João Silva\", \"Maria Santos\"]\n}\n```\n\n**Success Response (200):**\n```json\n{\n    \"status\": \"success\",\n    \"text\": \"extracted text...\",\n    \"found_names\": {\n        \"joão silva\": [1, 5],\n        \"maria santos\": [3]\n    },\n    \"age_verification\": {\n        \"age\": 16,\n        \"is_underage\": true,\n        \"date_of_birth\": \"15/03/2008\"\n    }\n}\n```\n\n**Possible Errors:**\n- 400: Invalid JSON or date format\n- 500: Document processing error"
 			},
 			"response": [
 				{
-					"name": "Sucesso",
+					"name": "Success - Underage Person",
 					"originalRequest": {
 						"method": "POST",
 						"header": [],
@@ -51,11 +51,11 @@
 								{
 									"key": "file",
 									"type": "file",
-									"src": "/path/to/document.pdf"
+									"src": "/path/to/id_underage.pdf"
 								},
 								{
 									"key": "search_request",
-									"value": "{\"names\": [\"João Silva\", \"Maria Santos\"]}",
+									"value": "{\"names\": [\"João Silva\"]}",
 									"type": "text"
 								}
 							]
@@ -82,15 +82,19 @@
 					"cookie": [],
 					"body": {
 						"status": "success",
-						"text": "Lorem ipsum dolor sit amet...\nJoão Silva é o responsável...\nContatar Maria Santos...\nJoão Silva assinou...",
+						"text": "CERTIFICADO DE REGISTRO GERAL\nNome: João Silva\nData de Nascimento: 15/03/2008\nFiliação: Maria Silva\n...",
 						"found_names": {
-							"joão silva": [2, 4],
-							"maria santos": [3]
+							"joão silva": [2]
+						},
+						"age_verification": {
+							"age": 16,
+							"is_underage": true,
+							"date_of_birth": "15/03/2008"
 						}
 					}
 				},
 				{
-					"name": "Erro - JSON Inválido",
+					"name": "Success - Adult Person",
 					"originalRequest": {
 						"method": "POST",
 						"header": [],
@@ -100,11 +104,115 @@
 								{
 									"key": "file",
 									"type": "file",
-									"src": "/path/to/document.pdf"
+									"src": "/path/to/id_adult.pdf"
 								},
 								{
 									"key": "search_request",
-									"value": "{nomes inválidos}",
+									"value": "{\"names\": [\"Maria Santos\"]}",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/process",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"process"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"cookie": [],
+					"body": {
+						"status": "success",
+						"text": "CERTIFICADO DE REGISTRO GERAL\nNome: Maria Santos\nData de Nascimento: 25/06/1990\nFiliação: José Santos\n...",
+						"found_names": {
+							"maria santos": [2]
+						},
+						"age_verification": {
+							"age": 33,
+							"is_underage": false,
+							"date_of_birth": "25/06/1990"
+						}
+					}
+				},
+				{
+					"name": "Error - Date Not Found",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "/path/to/document_no_date.pdf"
+								},
+								{
+									"key": "search_request",
+									"value": "{\"names\": [\"João Silva\"]}",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/process",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"process"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"cookie": [],
+					"body": {
+						"status": "success",
+						"text": "Document text without date...",
+						"found_names": {
+							"joão silva": [1]
+						},
+						"age_verification": {
+							"error": "Data de nascimento não encontrada no documento"
+						}
+					}
+				},
+				{
+					"name": "Error - Invalid Date Format",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "/path/to/invalid_date.pdf"
+								},
+								{
+									"key": "search_request",
+									"value": "{\"names\": [\"João Silva\"]}",
 									"type": "text"
 								}
 							]
@@ -130,51 +238,7 @@
 					],
 					"cookie": [],
 					"body": {
-						"detail": "JSON de busca inválido"
-					}
-				},
-				{
-					"name": "Erro - Processamento",
-					"originalRequest": {
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "formdata",
-							"formdata": [
-								{
-									"key": "file",
-									"type": "file",
-									"src": "/path/to/invalid.pdf"
-								},
-								{
-									"key": "search_request",
-									"value": "{\"names\": [\"João Silva\"]}",
-									"type": "text"
-								}
-							]
-						},
-						"url": {
-							"raw": "{{base_url}}/process",
-							"host": [
-								"{{base_url}}"
-							],
-							"path": [
-								"process"
-							]
-						}
-					},
-					"status": "Internal Server Error",
-					"code": 500,
-					"_postman_previewlanguage": "json",
-					"header": [
-						{
-							"key": "Content-Type",
-							"value": "application/json"
-						}
-					],
-					"cookie": [],
-					"body": {
-						"detail": "Erro no processamento do documento: ..."
+						"detail": "Erro ao calcular idade: time data 'invalid_date' does not match format '%d/%m/%Y'"
 					}
 				}
 			]
@@ -195,23 +259,43 @@
 			"script": {
 				"type": "text/javascript",
 				"exec": [
-					"// Testa se a resposta é um JSON válido",
-					"pm.test(\"Resposta é um JSON válido\", function () {",
+					"// Test if response is valid JSON",
+					"pm.test(\"Response is valid JSON\", function () {",
 					"    pm.response.to.be.json;",
 					"});",
 					"",
-					"// Testa o status code",
-					"pm.test(\"Status code é 200 ou um erro conhecido\", function () {",
+					"// Test status code",
+					"pm.test(\"Status code is 200 or known error\", function () {",
 					"    pm.expect(pm.response.code).to.be.oneOf([200, 400, 500]);",
 					"});",
 					"",
-					"// Se for sucesso, testa a estrutura da resposta",
+					"// If success, test response structure",
 					"if (pm.response.code === 200) {",
-					"    pm.test(\"Resposta contém os campos necessários\", function () {",
+					"    pm.test(\"Response has required fields\", function () {",
 					"        const responseData = pm.response.json();",
 					"        pm.expect(responseData).to.have.property('status');",
 					"        pm.expect(responseData).to.have.property('text');",
 					"        pm.expect(responseData).to.have.property('found_names');",
+					"        pm.expect(responseData).to.have.property('age_verification');",
+					"    });",
+					"    ",
+					"    // Test age verification structure if present",
+					"    pm.test(\"Age verification has correct structure\", function () {",
+					"        const responseData = pm.response.json();",
+					"        if (responseData.age_verification && !responseData.age_verification.error) {",
+					"            pm.expect(responseData.age_verification).to.have.property('age');",
+					"            pm.expect(responseData.age_verification).to.have.property('is_underage');",
+					"            pm.expect(responseData.age_verification).to.have.property('date_of_birth');",
+					"            ",
+					"            // Validate age is a number",
+					"            pm.expect(responseData.age_verification.age).to.be.a('number');",
+					"            ",
+					"            // Validate is_underage is boolean",
+					"            pm.expect(responseData.age_verification.is_underage).to.be.a('boolean');",
+					"            ",
+					"            // Validate date format",
+					"            pm.expect(responseData.age_verification.date_of_birth).to.match(/^\\d{2}\\/\\d{2}\\/\\d{4}$/);",
+					"        }",
 					"    });",
 					"}"
 				]
@@ -223,7 +307,7 @@
 			"key": "base_url",
 			"value": "http://localhost:8000",
 			"type": "string",
-			"description": "URL base da API"
+			"description": "API base URL"
 		}
 	]
 }
