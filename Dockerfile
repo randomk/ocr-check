@@ -1,4 +1,3 @@
- Dockerfile
 FROM python:3.9-slim
 
 # Diretório de trabalho
