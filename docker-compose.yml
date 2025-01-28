@@ -1,0 +1,15 @@
+services:
+  ocr-service:
+    build: .
+    volumes:
+      - ./:/app
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET=${S3_BUCKET}
+    ports:
+      - "8000:8000"

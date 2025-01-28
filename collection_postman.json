@@ -1,0 +1,229 @@
+{
+	"info": {
+		"_postman_id": "a8b9c0d1-e2f3-4g5h-6i7j-8k9l0m1n2o3p",
+		"name": "AWS OCR API",
+		"description": "API para extração de texto e busca de nomes em documentos usando AWS Textract",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Process Document",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "file",
+							"type": "file",
+							"src": "",
+							"description": "Documento para processamento (PDF, PNG, JPEG)"
+						},
+						{
+							"key": "search_request",
+							"value": "{\"names\": [\"João Silva\", \"Maria Santos\"]}",
+							"type": "text",
+							"description": "JSON com lista de nomes para buscar"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{base_url}}/process",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"process"
+					]
+				},
+				"description": "Endpoint para processar documentos e buscar nomes.\n\n**Parâmetros:**\n- file: Arquivo a ser processado (PDF, PNG, JPEG)\n- search_request: JSON string contendo lista de nomes para buscar\n\n**Exemplo de search_request:**\n```json\n{\n    \"names\": [\"João Silva\", \"Maria Santos\"]\n}\n```\n\n**Resposta de Sucesso (200):**\n```json\n{\n    \"status\": \"success\",\n    \"text\": \"texto extraído do documento...\",\n    \"found_names\": {\n        \"joão silva\": [1, 5],\n        \"maria santos\": [3]\n    }\n}\n```\n\n**Erros Possíveis:**\n- 400: JSON inválido ou formato incorreto\n- 500: Erro no processamento do documento"
+			},
+			"response": [
+				{
+					"name": "Sucesso",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "/path/to/document.pdf"
+								},
+								{
+									"key": "search_request",
+									"value": "{\"names\": [\"João Silva\", \"Maria Santos\"]}",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/process",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"process"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"cookie": [],
+					"body": {
+						"status": "success",
+						"text": "Lorem ipsum dolor sit amet...\nJoão Silva é o responsável...\nContatar Maria Santos...\nJoão Silva assinou...",
+						"found_names": {
+							"joão silva": [2, 4],
+							"maria santos": [3]
+						}
+					}
+				},
+				{
+					"name": "Erro - JSON Inválido",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "/path/to/document.pdf"
+								},
+								{
+									"key": "search_request",
+									"value": "{nomes inválidos}",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/process",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"process"
+							]
+						}
+					},
+					"status": "Bad Request",
+					"code": 400,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"cookie": [],
+					"body": {
+						"detail": "JSON de busca inválido"
+					}
+				},
+				{
+					"name": "Erro - Processamento",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "/path/to/invalid.pdf"
+								},
+								{
+									"key": "search_request",
+									"value": "{\"names\": [\"João Silva\"]}",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/process",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"process"
+							]
+						}
+					},
+					"status": "Internal Server Error",
+					"code": 500,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"cookie": [],
+					"body": {
+						"detail": "Erro no processamento do documento: ..."
+					}
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Testa se a resposta é um JSON válido",
+					"pm.test(\"Resposta é um JSON válido\", function () {",
+					"    pm.response.to.be.json;",
+					"});",
+					"",
+					"// Testa o status code",
+					"pm.test(\"Status code é 200 ou um erro conhecido\", function () {",
+					"    pm.expect(pm.response.code).to.be.oneOf([200, 400, 500]);",
+					"});",
+					"",
+					"// Se for sucesso, testa a estrutura da resposta",
+					"if (pm.response.code === 200) {",
+					"    pm.test(\"Resposta contém os campos necessários\", function () {",
+					"        const responseData = pm.response.json();",
+					"        pm.expect(responseData).to.have.property('status');",
+					"        pm.expect(responseData).to.have.property('text');",
+					"        pm.expect(responseData).to.have.property('found_names');",
+					"    });",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string",
+			"description": "URL base da API"
+		}
+	]
+}
