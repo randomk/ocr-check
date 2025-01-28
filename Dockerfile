@@ -23,7 +23,6 @@ COPY static/ static/
 # Define variáveis de ambiente padrão
 ENV AWS_ACCESS_KEY_ID=""
 ENV AWS_SECRET_ACCESS_KEY=""
-ENV AWS_ROLE_ARN=""
 ENV AWS_REGION="us-east-1"
 ENV S3_BUCKET=""
 
