@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificação de Documentos</title>
+    <!-- Alpine Core -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- Ace Editor -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.12/ace.js"></script>
+    <!-- Tailwind -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        #jsonEditor {
+            min-height: 200px;
+            width: 100%;
+            margin: 0;
+            position: relative;
+        }
+        .ace_editor {
+            border: 1px solid #e5e7eb;
+            border-radius: 0.75rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div x-data="documentVerifier()" x-init="init()" class="container mx-auto px-4 py-8 max-w-7xl">
+        <!-- Cabeçalho -->
+        <div class="text-center mb-12">
+            <img src="https://cdn.prod.website-files.com/60145959f19bd32ea3ea4d53/6706d71074cb86ba3520b7a0_swap-logo-2024.svg"
+                 alt="Swap Logo"
+                 class="h-8 mx-auto mb-8">
+            <h1 class="text-4xl font-bold text-gray-900 mb-3">Verificação de Documentos</h1>
+            <p class="text-gray-600">Upload de RG e verificação de dados</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-7xl mx-auto">
+            <!-- Coluna Esquerda -->
+            <div class="bg-white rounded-2xl shadow-sm p-8">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">JSON de Busca</h2>
+
+                <!-- Editor JSON -->
+                <div class="mb-8">
+                    <div id="jsonEditor" class="w-full h-48 rounded-xl border border-gray-200 text-sm font-mono bg-white"></div>
+                    <p class="mt-2 text-sm text-gray-500">Adicione, remova ou edite os nomes conforme necessário</p>
+                </div>
+
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">Upload de Documento</h2>
+
+                <!-- Upload de Arquivo -->
+                <div class="mb-6">
+                    <div
+                        class="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-gray-300 transition-colors bg-gray-50"
+                        @click="$refs.fileInput.click()"
+                        :class="{'border-blue-200 bg-blue-50': dragover}"
+                        @dragover.prevent="dragover = true"
+                        @dragleave.prevent="dragover = false"
+                        @drop.prevent="handleDrop($event)">
+
+                        <template x-if="!hasFile">
+                            <div>
+                                <svg class="mx-auto h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                </svg>
+                                <p class="mt-3 text-gray-700">Clique ou arraste um arquivo aqui</p>
+                                <p class="mt-1 text-sm text-gray-500">PDF, PNG ou JPEG</p>
+                            </div>
+                        </template>
+
+                        <template x-if="hasFile">
+                            <div class="text-gray-700">
+                                <svg class="mx-auto h-8 w-8 text-green-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                </svg>
+                                <p x-text="fileName"></p>
+                            </div>
+                        </template>
+                    </div>
+
+                    <input
+                        type="file"
+                        x-ref="fileInput"
+                        class="hidden"
+                        @change="handleFileSelect($event)"
+                        accept=".pdf,.png,.jpg,.jpeg">
+                </div>
+
+                <!-- Botão Submit -->
+                <button
+                    @click="submitForm"
+                    :disabled="!canSubmit"
+                    :class="{
+                        'bg-blue-600 hover:bg-blue-700': canSubmit && !loading,
+                        'bg-gray-200 text-gray-400 cursor-not-allowed': !canSubmit || loading
+                    }"
+                    class="w-full font-semibold py-3 px-4 rounded-xl focus:outline-none transition-colors duration-200 text-white">
+                    <template x-if="!loading">
+                        <span>Verificar Documento</span>
+                    </template>
+                    <template x-if="loading">
+                        <div class="flex items-center justify-center">
+                            <svg class="animate-spin h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Processando...
+                        </div>
+                    </template>
+                </button>
+            </div>
+
+            <!-- Coluna Direita -->
+            <div class="bg-white rounded-2xl shadow-sm p-8">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">Resultados</h2>
+
+                <template x-if="!result">
+                    <div class="text-gray-500 text-center py-32">
+                        Nenhum resultado para exibir
+                    </div>
+                </template>
+
+                <template x-if="result">
+                    <div class="space-y-6">
+                        <!-- O resto do seu código para exibir resultados permanece o mesmo -->
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function documentVerifier() {
+            return {
+                selectedFile: null,
+                dragover: false,
+                result: null,
+                loading: false,
+                jsonError: null,
+                editor: null,
+
+                get hasFile() {
+                    return this.selectedFile !== null;
+                },
+
+                get fileName() {
+                    return this.selectedFile ? this.selectedFile.name : '';
+                },
+
+                get canSubmit() {
+                    if (!this.editor || !this.hasFile) return false;
+                    try {
+                        JSON.parse(this.editor.getValue());
+                        return !this.loading;
+                    } catch {
+                        return false;
+                    }
+                },
+
+                init() {
+                    this.initEditor();
+                },
+
+                initEditor() {
+                    setTimeout(() => {
+                        this.editor = ace.edit("jsonEditor");
+                        this.editor.setTheme("ace/theme/chrome");
+                        this.editor.session.setMode("ace/mode/json");
+                        this.editor.setOptions({
+                            fontSize: "14px",
+                            showPrintMargin: false,
+                            showGutter: true,
+                            highlightActiveLine: true,
+                            wrap: true,
+                            tabSize: 2,
+                            useSoftTabs: true
+                        });
+
+                        this.editor.container.style.lineHeight = "1.5";
+                        this.editor.renderer.setScrollMargin(10, 10, 10, 10);
+
+                        const sampleJson = {
+                            names: [
+                                "João da Silva",
+                                "Maria Santos Oliveira",
+                                "Pedro Henrique Costa",
+                                "Ana Beatriz Souza"
+                            ]
+                        };
+
+                        this.editor.setValue(JSON.stringify(sampleJson, null, 2), -1);
+                        this.editor.clearSelection();
+                    }, 100);
+                },
+
+                handleFileSelect(event) {
+                    const file = event.target.files[0];
+                    if (file) {
+                        this.selectedFile = file;
+                    }
+                },
+
+                handleDrop(event) {
+                    this.dragover = false;
+                    const file = event.dataTransfer.files[0];
+                    if (file) {
+                        this.selectedFile = file;
+                    }
+                },
+
+                async submitForm() {
+                    if (!this.canSubmit) return;
+
+                    try {
+                        const searchRequest = JSON.parse(this.editor.getValue());
+                        this.jsonError = null;
+                        this.loading = true;
+
+                        const formData = new FormData();
+                        formData.append('file', this.selectedFile);
+                        formData.append('search_request', JSON.stringify(searchRequest));
+
+                        const response = await fetch('/process', {
+                            method: 'POST',
+                            body: formData
+                        });
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            throw new Error(data.detail || 'Erro ao processar documento');
+                        }
+
+                        this.result = data;
+                    } catch (error) {
+                        if (error instanceof SyntaxError) {
+                            this.jsonError = 'JSON inválido';
+                        }
+                        this.result = {
+                            status: 'error',
+                            message: error.message
+                        };
+                    } finally {
+                        this.loading = false;
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>
