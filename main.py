@@ -83,6 +83,58 @@ class OCRService:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Erro na extração do texto: {str(e)}")
 
+    def extract_date_of_birth(self, text: str) -> str:
+        """
+        Extrai a data de nascimento do texto do RG
+        Procura por padrões comuns de data no formato dd/mm/yyyy
+        """
+        import re
+        from datetime import datetime
+
+        # Padrões comuns para data de nascimento em RGs
+        patterns = [
+            r'nasc\w*[\s:]+(\d{2}/\d{2}/\d{4})',  # Nascimento: dd/mm/yyyy
+            r'data\s+de\s+nascimento[\s:]+(\d{2}/\d{2}/\d{4})',  # Data de Nascimento: dd/mm/yyyy
+            r'dt\s*nasc[\s:]+(\d{2}/\d{2}/\d{4})',  # Dt Nasc: dd/mm/yyyy
+            r'(\d{2}/\d{2}/\d{4})'  # Qualquer data no formato dd/mm/yyyy
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, text.lower())
+            if match:
+                return match.group(1)
+
+        return None
+
+    def calculate_age(self, date_of_birth: str) -> Dict[str, Any]:
+        """
+        Calcula a idade e verifica se é menor de idade
+        """
+        from datetime import datetime
+
+        try:
+            # Converte a string de data para objeto datetime
+            dob = datetime.strptime(date_of_birth, '%d/%m/%Y')
+
+            # Calcula a idade
+            today = datetime.now()
+            age = today.year - dob.year
+
+            # Ajusta a idade se ainda não fez aniversário este ano
+            if today.month < dob.month or (today.month == dob.month and today.day < dob.day):
+                age -= 1
+
+            return {
+                "age": age,
+                "is_underage": age < 18,
+                "date_of_birth": date_of_birth
+            }
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Erro ao calcular idade: {str(e)}"
+            )
+
     def search_names(self, text: str, registered_names: List[str]) -> Dict[str, List[int]]:
         """
         Procura nomes registrados no texto extraído
@@ -119,13 +171,22 @@ class OCRService:
             # Procura nomes
             found_names = self.search_names(extracted_text, registered_names)
 
+            # Extrai data de nascimento e calcula idade
+            date_of_birth = self.extract_date_of_birth(extracted_text)
+            age_info = None
+            if date_of_birth:
+                age_info = self.calculate_age(date_of_birth)
+
             # Remove o arquivo do S3 após processamento
             self.s3.delete_object(Bucket=bucket, Key=filename)
 
             return {
                 'status': 'success',
                 'text': extracted_text,
-                'found_names': found_names
+                'found_names': found_names,
+                'age_verification': age_info if age_info else {
+                    'error': 'Data de nascimento não encontrada no documento'
+                }
             }
 
         except Exception as e:
