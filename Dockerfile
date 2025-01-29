@@ -27,7 +27,7 @@ RUN mkdir -p templates static
 COPY . .
 
 # Define variáveis de ambiente
-ENV AWS_REGION="us-east-1"
+ENV AWS_REGION="us-east-2"
 ENV S3_BUCKET=""
 ENV PYTHONUNBUFFERED=1
 
