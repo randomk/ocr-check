@@ -170,6 +170,48 @@
             <div class="bg-white rounded-2xl p-8 max-w-md w-full mx-4">
                 <h3 class="text-xl font-semibold text-gray-900 mb-4">Processando Documentos</h3>
 
+                <!-- Estágios do Processamento -->
+                <div class="mb-6 space-y-4">
+                    <div class="flex items-center">
+                        <div class="w-6 h-6 flex items-center justify-center rounded-full"
+                             :class="{'bg-blue-500 text-white': currentStage >= 1, 'bg-gray-200': currentStage < 1}">
+                            1
+                        </div>
+                        <div class="ml-3 flex-1">
+                            <div class="text-sm font-medium"
+                                 :class="{'text-blue-500': currentStage >= 1, 'text-gray-500': currentStage < 1}">
+                                Upload
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center">
+                        <div class="w-6 h-6 flex items-center justify-center rounded-full"
+                             :class="{'bg-blue-500 text-white': currentStage >= 2, 'bg-gray-200': currentStage < 2}">
+                            2
+                        </div>
+                        <div class="ml-3 flex-1">
+                            <div class="text-sm font-medium"
+                                 :class="{'text-blue-500': currentStage >= 2, 'text-gray-500': currentStage < 2}">
+                                Extração
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center">
+                        <div class="w-6 h-6 flex items-center justify-center rounded-full"
+                             :class="{'bg-blue-500 text-white': currentStage >= 3, 'bg-gray-200': currentStage < 3}">
+                            3
+                        </div>
+                        <div class="ml-3 flex-1">
+                            <div class="text-sm font-medium"
+                                 :class="{'text-blue-500': currentStage >= 3, 'text-gray-500': currentStage < 3}">
+                                Processamento (<span x-text="processedFiles"></span>/<span x-text="totalFiles"></span>)
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Barra de Progresso -->
                 <div class="w-full bg-gray-200 rounded-full h-4 mb-4">
                     <div class="bg-blue-600 h-4 rounded-full transition-all duration-500"
@@ -179,8 +221,9 @@
 
                 <!-- Status -->
                 <div class="text-center">
-                    <p class="text-gray-600" x-text="progressText"></p>
-                    <p class="text-sm text-gray-500 mt-2">Por favor, aguarde enquanto processamos seus documentos</p>
+                    <p class="text-gray-600 font-medium" x-text="currentFileName ? 'Processando: ' + currentFileName : 'Iniciando...'"></p>
+                    <p class="text-sm text-gray-500 mt-2" x-text="'Documento ' + processedFiles + ' de ' + totalFiles"></p>
+                    <p class="text-xs text-gray-400 mt-1">Este processo pode levar alguns minutos por documento</p>
                 </div>
             </div>
         </div>
@@ -196,6 +239,7 @@
                 totalFiles: 0,
                 processedFiles: 0,
                 currentFileName: '',
+                currentStage: 0,
 
                 get hasFile() {
                     return this.selectedFile !== null;
@@ -210,26 +254,15 @@
                 },
 
                 get progressPercentage() {
+                    if (this.currentStage < 3) {
+                        return this.currentStage * 33;
+                    }
                     if (this.totalFiles === 0) return 0;
                     return Math.round((this.processedFiles / this.totalFiles) * 100);
                 },
 
-                get progressText() {
-                    return `Processando ${this.processedFiles} de ${this.totalFiles} documentos`;
-                },
-
                 handleFileSelect(event) {
                     const file = event.target.files[0];
-                    if (file && file.name.toLowerCase().endsWith('.zip')) {
-                        this.selectedFile = file;
-                    } else {
-                        alert('Por favor, selecione um arquivo ZIP');
-                    }
-                },
-
-                handleDrop(event) {
-                    this.dragover = false;
-                    const file = event.dataTransfer.files[0];
                     if (file && file.name.toLowerCase().endsWith('.zip')) {
                         this.selectedFile = file;
                     } else {
@@ -243,6 +276,7 @@
                     try {
                         this.loading = true;
                         this.processedFiles = 0;
+                        this.currentStage = 1; // Upload
 
                         // Primeiro, vamos contar quantos arquivos tem no ZIP
                         const zip = new JSZip();
@@ -251,10 +285,11 @@
                             filename => filename.match(/\.(pdf|jpg|jpeg|png)$/i)
                         ).length;
 
+                        this.currentStage = 2; // Extração
+
                         const formData = new FormData();
                         formData.append('file', this.selectedFile);
 
-                        // Configurar eventos para acompanhar o progresso
                         const response = await fetch('/process', {
                             method: 'POST',
                             body: formData
@@ -268,6 +303,7 @@
                         const reader = response.body.getReader();
                         let decoder = new TextDecoder();
                         let buffer = '';
+                        this.currentStage = 3; // Processamento
 
                         while (true) {
                             const {done, value} = await reader.read();
@@ -305,6 +341,7 @@
                         };
                     } finally {
                         this.loading = false;
+                        this.currentStage = 0;
                     }
                 }
             }
