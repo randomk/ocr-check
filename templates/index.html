@@ -6,46 +6,26 @@
     <title>Verificação de Documentos</title>
     <!-- Alpine Core -->
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <!-- Ace Editor -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.12/ace.js"></script>
+    <!-- JSZip -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <!-- Tailwind -->
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <style>
-        #jsonEditor {
-            min-height: 200px;
-            width: 100%;
-            margin: 0;
-            position: relative;
-        }
-        .ace_editor {
-            border: 1px solid #e5e7eb;
-            border-radius: 0.75rem;
-        }
-    </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
-    <div x-data="documentVerifier()" x-init="init()" class="container mx-auto px-4 py-8 max-w-7xl">
+    <div x-data="documentVerifier()" class="container mx-auto px-4 py-8 max-w-7xl">
         <!-- Cabeçalho -->
         <div class="text-center mb-12">
             <img src="https://cdn.prod.website-files.com/60145959f19bd32ea3ea4d53/6706d71074cb86ba3520b7a0_swap-logo-2024.svg"
                  alt="Swap Logo"
                  class="h-8 mx-auto mb-8">
             <h1 class="text-4xl font-bold text-gray-900 mb-3">Verificação de Documentos</h1>
-            <p class="text-gray-600">Upload de RG e verificação de dados</p>
+            <p class="text-gray-600">Upload de documentos e verificação de idade</p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-7xl mx-auto">
             <!-- Coluna Esquerda -->
             <div class="bg-white rounded-2xl shadow-sm p-8">
-                <h2 class="text-xl font-semibold text-gray-900 mb-4">JSON de Busca</h2>
-
-                <!-- Editor JSON -->
-                <div class="mb-8">
-                    <div id="jsonEditor" class="w-full h-48 rounded-xl border border-gray-200 text-sm font-mono bg-white"></div>
-                    <p class="mt-2 text-sm text-gray-500">Adicione, remova ou edite os nomes conforme necessário</p>
-                </div>
-
-                <h2 class="text-xl font-semibold text-gray-900 mb-4">Upload de Documento</h2>
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">Upload de Documentos</h2>
 
                 <!-- Upload de Arquivo -->
                 <div class="mb-6">
@@ -62,8 +42,8 @@
                                 <svg class="mx-auto h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
                                 </svg>
-                                <p class="mt-3 text-gray-700">Clique ou arraste um arquivo aqui</p>
-                                <p class="mt-1 text-sm text-gray-500">PDF, PNG ou JPEG</p>
+                                <p class="mt-3 text-gray-700">Clique ou arraste um arquivo ZIP aqui</p>
+                                <p class="mt-1 text-sm text-gray-500">Contendo documentos PDF, PNG ou JPEG</p>
                             </div>
                         </template>
 
@@ -82,7 +62,7 @@
                         x-ref="fileInput"
                         class="hidden"
                         @change="handleFileSelect($event)"
-                        accept=".pdf,.png,.jpg,.jpeg">
+                        accept="application/zip,.zip">
                 </div>
 
                 <!-- Botão Submit -->
@@ -94,18 +74,7 @@
                         'bg-gray-200 text-gray-400 cursor-not-allowed': !canSubmit || loading
                     }"
                     class="w-full font-semibold py-3 px-4 rounded-xl focus:outline-none transition-colors duration-200 text-white">
-                    <template x-if="!loading">
-                        <span>Verificar Documento</span>
-                    </template>
-                    <template x-if="loading">
-                        <div class="flex items-center justify-center">
-                            <svg class="animate-spin h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            Processando...
-                        </div>
-                    </template>
+                    <span>Verificar Documentos</span>
                 </button>
             </div>
 
@@ -119,11 +88,100 @@
                     </div>
                 </template>
 
-                <template x-if="result">
+                <template x-if="result && result.summary">
                     <div class="space-y-6">
-                        <!-- O resto do seu código para exibir resultados permanece o mesmo -->
+                        <!-- Resumo -->
+                        <div class="bg-white p-6 rounded-xl border border-gray-200">
+                            <h3 class="text-lg font-semibold mb-4">Resumo da Verificação</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div class="p-4 bg-blue-50 rounded-lg">
+                                    <p class="text-sm text-blue-600">Total Processado</p>
+                                    <p class="text-2xl font-bold text-blue-700" x-text="result.summary.total_processed"></p>
+                                </div>
+                                <div class="p-4 bg-green-50 rounded-lg">
+                                    <p class="text-sm text-green-600">Maiores de Idade</p>
+                                    <p class="text-2xl font-bold text-green-700" x-text="result.summary.adult_count"></p>
+                                </div>
+                                <div class="p-4 bg-red-50 rounded-lg">
+                                    <p class="text-sm text-red-600">Menores de Idade</p>
+                                    <p class="text-2xl font-bold text-red-700" x-text="result.summary.underage_count"></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Lista de Menores de Idade -->
+                        <template x-if="result.summary.underage_list && result.summary.underage_list.length > 0">
+                            <div class="bg-red-50 p-6 rounded-xl">
+                                <h3 class="text-lg font-semibold text-red-700 mb-4">Menores de Idade Identificados</h3>
+                                <div class="space-y-4">
+                                    <template x-for="person in result.summary.underage_list" :key="person.filename">
+                                        <div class="bg-white p-4 rounded-lg border border-red-200">
+                                            <p class="font-medium" x-text="person.name"></p>
+                                            <p class="text-sm text-gray-600">
+                                                Idade: <span x-text="person.age"></span> anos
+                                            </p>
+                                            <p class="text-sm text-gray-600">
+                                                Data de Nascimento: <span x-text="person.date_of_birth"></span>
+                                            </p>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Arquivos com Erro -->
+                        <template x-if="result.summary.error_files && result.summary.error_files.length > 0">
+                            <div class="bg-yellow-50 p-6 rounded-xl">
+                                <h3 class="text-lg font-semibold text-yellow-700 mb-4">Arquivos com Erro</h3>
+                                <div class="space-y-4">
+                                    <template x-for="file in result.summary.error_files" :key="file.filename">
+                                        <div class="bg-white p-4 rounded-lg border border-yellow-200">
+                                            <p class="font-medium" x-text="file.filename"></p>
+                                            <p class="text-sm text-red-600" x-text="file.error"></p>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Link para Download do Relatório -->
+                        <template x-if="result.report_filename">
+                            <div class="text-center">
+                                <a :href="result.report_filename"
+                                   download
+                                   class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                              d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    Baixar Relatório
+                                </a>
+                            </div>
+                        </template>
                     </div>
                 </template>
+            </div>
+        </div>
+
+        <!-- Modal de Progresso -->
+        <div x-show="loading"
+             class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
+             style="z-index: 9999;">
+            <div class="bg-white rounded-2xl p-8 max-w-md w-full mx-4">
+                <h3 class="text-xl font-semibold text-gray-900 mb-4">Processando Documentos</h3>
+
+                <!-- Barra de Progresso -->
+                <div class="w-full bg-gray-200 rounded-full h-4 mb-4">
+                    <div class="bg-blue-600 h-4 rounded-full transition-all duration-500"
+                         :style="'width: ' + progressPercentage + '%'">
+                    </div>
+                </div>
+
+                <!-- Status -->
+                <div class="text-center">
+                    <p class="text-gray-600" x-text="progressText"></p>
+                    <p class="text-sm text-gray-500 mt-2">Por favor, aguarde enquanto processamos seus documentos</p>
+                </div>
             </div>
         </div>
     </div>
@@ -135,8 +193,9 @@
                 dragover: false,
                 result: null,
                 loading: false,
-                jsonError: null,
-                editor: null,
+                totalFiles: 0,
+                processedFiles: 0,
+                currentFileName: '',
 
                 get hasFile() {
                     return this.selectedFile !== null;
@@ -147,63 +206,34 @@
                 },
 
                 get canSubmit() {
-                    if (!this.editor || !this.hasFile) return false;
-                    try {
-                        JSON.parse(this.editor.getValue());
-                        return !this.loading;
-                    } catch {
-                        return false;
-                    }
+                    return this.hasFile && !this.loading;
                 },
 
-                init() {
-                    this.initEditor();
+                get progressPercentage() {
+                    if (this.totalFiles === 0) return 0;
+                    return Math.round((this.processedFiles / this.totalFiles) * 100);
                 },
 
-                initEditor() {
-                    setTimeout(() => {
-                        this.editor = ace.edit("jsonEditor");
-                        this.editor.setTheme("ace/theme/chrome");
-                        this.editor.session.setMode("ace/mode/json");
-                        this.editor.setOptions({
-                            fontSize: "14px",
-                            showPrintMargin: false,
-                            showGutter: true,
-                            highlightActiveLine: true,
-                            wrap: true,
-                            tabSize: 2,
-                            useSoftTabs: true
-                        });
-
-                        this.editor.container.style.lineHeight = "1.5";
-                        this.editor.renderer.setScrollMargin(10, 10, 10, 10);
-
-                        const sampleJson = {
-                            names: [
-                                "João da Silva",
-                                "Maria Santos Oliveira",
-                                "Pedro Henrique Costa",
-                                "Ana Beatriz Souza"
-                            ]
-                        };
-
-                        this.editor.setValue(JSON.stringify(sampleJson, null, 2), -1);
-                        this.editor.clearSelection();
-                    }, 100);
+                get progressText() {
+                    return `Processando ${this.processedFiles} de ${this.totalFiles} documentos`;
                 },
 
                 handleFileSelect(event) {
                     const file = event.target.files[0];
-                    if (file) {
+                    if (file && file.name.toLowerCase().endsWith('.zip')) {
                         this.selectedFile = file;
+                    } else {
+                        alert('Por favor, selecione um arquivo ZIP');
                     }
                 },
 
                 handleDrop(event) {
                     this.dragover = false;
                     const file = event.dataTransfer.files[0];
-                    if (file) {
+                    if (file && file.name.toLowerCase().endsWith('.zip')) {
                         this.selectedFile = file;
+                    } else {
+                        alert('Por favor, selecione um arquivo ZIP');
                     }
                 },
 
@@ -211,30 +241,64 @@
                     if (!this.canSubmit) return;
 
                     try {
-                        const searchRequest = JSON.parse(this.editor.getValue());
-                        this.jsonError = null;
                         this.loading = true;
+                        this.processedFiles = 0;
+
+                        // Primeiro, vamos contar quantos arquivos tem no ZIP
+                        const zip = new JSZip();
+                        const zipContent = await zip.loadAsync(this.selectedFile);
+                        this.totalFiles = Object.keys(zipContent.files).filter(
+                            filename => filename.match(/\.(pdf|jpg|jpeg|png)$/i)
+                        ).length;
 
                         const formData = new FormData();
                         formData.append('file', this.selectedFile);
-                        formData.append('search_request', JSON.stringify(searchRequest));
 
+                        // Configurar eventos para acompanhar o progresso
                         const response = await fetch('/process', {
                             method: 'POST',
                             body: formData
                         });
 
-                        const data = await response.json();
-
                         if (!response.ok) {
-                            throw new Error(data.detail || 'Erro ao processar documento');
+                            const data = await response.json();
+                            throw new Error(data.detail || 'Erro ao processar documentos');
                         }
 
-                        this.result = data;
-                    } catch (error) {
-                        if (error instanceof SyntaxError) {
-                            this.jsonError = 'JSON inválido';
+                        const reader = response.body.getReader();
+                        let decoder = new TextDecoder();
+                        let buffer = '';
+
+                        while (true) {
+                            const {done, value} = await reader.read();
+
+                            if (done) break;
+
+                            buffer += decoder.decode(value, {stream: true});
+
+                            // Procurar por atualizações de progresso no buffer
+                            if (buffer.includes('\n')) {
+                                const lines = buffer.split('\n');
+                                buffer = lines.pop(); // Manter o que sobrou para a próxima iteração
+
+                                for (const line of lines) {
+                                    try {
+                                        const update = JSON.parse(line);
+                                        if (update.type === 'progress') {
+                                            this.processedFiles = update.processed;
+                                            this.currentFileName = update.current_file;
+                                        }
+                                    } catch (e) {
+                                        // Ignorar linhas que não são JSON válido
+                                    }
+                                }
+                            }
                         }
+
+                        this.result = JSON.parse(buffer);
+
+                    } catch (error) {
+                        console.error('Erro:', error);
                         this.result = {
                             status: 'error',
                             message: error.message

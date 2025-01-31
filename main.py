@@ -1,268 +1,26 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request
+from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 import boto3
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, AsyncGenerator
 import json
-from pydantic import BaseModel
-import uvicorn
-from tempfile import NamedTemporaryFile
+import zipfile
+from io import BytesIO
+from datetime import datetime
+import re
 from dotenv import load_dotenv
+import asyncio
 
+# Carrega variáveis de ambiente
 load_dotenv()
-
-
-class SearchRequest(BaseModel):
-    names: List[str]
-
-
-class OCRService:
-    def __init__(self, aws_access_key_id: str, aws_secret_access_key: str, region_name: str):
-        """
-        Inicializa o serviço OCR com credenciais AWS
-        """
-        self.textract = boto3.client(
-            'textract',
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            region_name=region_name
-        )
-
-        self.s3 = boto3.client(
-            's3',
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            region_name=region_name
-        )
-
-    def upload_to_s3(self, file_content: bytes, filename: str, bucket: str) -> str:
-        """
-        Faz upload do arquivo para S3
-        """
-        try:
-            print(f"Iniciando upload para S3: bucket={bucket}, filename={filename}")
-
-            # Extrai apenas o nome do bucket do ARN se necessário
-            bucket_name = bucket.split(":")[-1] if "arn:aws:s3" in bucket else bucket
-            print(f"Usando bucket name: {bucket_name}")
-
-            # Tenta listar o bucket para verificar acesso
-            try:
-                self.s3.head_bucket(Bucket=bucket_name)
-                print("Bucket verificado com sucesso")
-            except Exception as e:
-                print(f"Erro ao verificar bucket: {str(e)}")
-                raise Exception(f"Erro ao acessar bucket: {str(e)}")
-
-            # Faz o upload
-            try:
-                self.s3.put_object(
-                    Bucket=bucket_name,
-                    Key=filename,
-                    Body=file_content
-                )
-                print(f"Arquivo {filename} enviado com sucesso para {bucket_name}")
-                return f"s3://{bucket_name}/{filename}"
-            except Exception as e:
-                print(f"Erro no upload do arquivo: {str(e)}")
-                raise Exception(f"Erro no upload: {str(e)}")
-
-        except Exception as e:
-            error_msg = f"Erro no upload para S3: {str(e)}"
-            print(error_msg)
-            raise HTTPException(status_code=500, detail=error_msg)
-
-    def extract_text_from_document(self, bucket: str, document_key: str) -> str:
-        """
-        Extrai texto do documento usando AWS Textract
-        """
-        try:
-            response = self.textract.start_document_text_detection(
-                DocumentLocation={
-                    'S3Object': {
-                        'Bucket': bucket,
-                        'Name': document_key
-                    }
-                }
-            )
-
-            job_id = response['JobId']
-
-            # Aguarda conclusão do job
-            while True:
-                response = self.textract.get_document_text_detection(JobId=job_id)
-                status = response['JobStatus']
-
-                if status in ['SUCCEEDED', 'FAILED']:
-                    break
-
-            if status == 'FAILED':
-                raise HTTPException(status_code=500, detail='Falha na extração do texto')
-
-            # Extrai todo o texto
-            text = ""
-            for item in response['Blocks']:
-                if item['BlockType'] == 'LINE':
-                    text += item['Text'] + "\n"
-
-            return text
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Erro na extração do texto: {str(e)}")
-
-    def extract_date_of_birth(self, text: str) -> str:
-        """
-        Extrai a data de nascimento do texto do RG
-        Procura por padrões comuns de data no formato dd/mm/yyyy
-        """
-        import re
-        from datetime import datetime
-
-        # Padrões comuns para data de nascimento em RGs
-        patterns = [
-            r'nasc\w*[\s:]+(\d{2}/\d{2}/\d{4})',  # Nascimento: dd/mm/yyyy
-            r'data\s+de\s+nascimento[\s:]+(\d{2}/\d{2}/\d{4})',  # Data de Nascimento: dd/mm/yyyy
-            r'dt\s*nasc[\s:]+(\d{2}/\d{2}/\d{4})',  # Dt Nasc: dd/mm/yyyy
-            r'(\d{2}/\d{2}/\d{4})'  # Qualquer data no formato dd/mm/yyyy
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, text.lower())
-            if match:
-                return match.group(1)
-
-        return None
-
-    def calculate_age(self, date_of_birth: str) -> Dict[str, Any]:
-        """
-        Calcula a idade e verifica se é menor de idade
-        """
-        from datetime import datetime
-
-        try:
-            # Converte a string de data para objeto datetime
-            dob = datetime.strptime(date_of_birth, '%d/%m/%Y')
-
-            # Calcula a idade
-            today = datetime.now()
-            age = today.year - dob.year
-
-            # Ajusta a idade se ainda não fez aniversário este ano
-            if today.month < dob.month or (today.month == dob.month and today.day < dob.day):
-                age -= 1
-
-            return {
-                "age": age,
-                "is_underage": age < 18,
-                "date_of_birth": date_of_birth
-            }
-        except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Erro ao calcular idade: {str(e)}"
-            )
-
-    def search_names(self, text: str, registered_names: List[str]) -> Dict[str, List[int]]:
-        """
-        Procura nomes registrados no texto extraído
-        Retorna um dicionário com os nomes encontrados e suas posições
-        """
-        results = {}
-        lines = text.split('\n')
-
-        for name in registered_names:
-            name = name.lower()
-            positions = []
-
-            for i, line in enumerate(lines):
-                if name in line.lower():
-                    positions.append(i + 1)
-
-            if positions:
-                results[name] = positions
-
-        return results
-
-    def process_document(self, file_content: bytes, filename: str, bucket: str, registered_names: List[str]) -> Dict[
-        str, Any]:
-        """
-        Processa o documento completo
-        """
-        try:
-            print(f"Iniciando processamento do documento {filename}")
-
-            # Upload do arquivo
-            try:
-                self.upload_to_s3(file_content, filename, bucket)
-                print("Arquivo enviado para S3 com sucesso")
-            except Exception as e:
-                print(f"Erro no upload para S3: {str(e)}")
-                raise
-
-            # Extrai texto
-            try:
-                extracted_text = self.extract_text_from_document(bucket, filename)
-                print("Texto extraído com sucesso")
-                print(f"Texto extraído: {extracted_text[:200]}...")  # Primeiros 200 caracteres
-            except Exception as e:
-                print(f"Erro na extração de texto: {str(e)}")
-                raise
-
-            # Procura nomes
-            try:
-                found_names = self.search_names(extracted_text, registered_names)
-                print(f"Nomes encontrados: {found_names}")
-            except Exception as e:
-                print(f"Erro na busca de nomes: {str(e)}")
-                raise
-
-            # Extrai data de nascimento e calcula idade
-            try:
-                date_of_birth = self.extract_date_of_birth(extracted_text)
-                if date_of_birth:
-                    age_info = self.calculate_age(date_of_birth)
-                    print(f"Informações de idade: {age_info}")
-                else:
-                    age_info = None
-                    print("Data de nascimento não encontrada")
-            except Exception as e:
-                print(f"Erro no cálculo de idade: {str(e)}")
-                age_info = None
-
-            # Remove o arquivo do S3 após processamento
-            try:
-                self.s3.delete_object(Bucket=bucket, Key=filename)
-                print("Arquivo removido do S3")
-            except Exception as e:
-                print(f"Erro ao remover arquivo do S3: {str(e)}")
-                # Não levanta exceção aqui pois o processamento já foi concluído
-
-            return {
-                'status': 'success',
-                'text': extracted_text,
-                'found_names': found_names,
-                'age_verification': age_info if age_info else {
-                    'error': 'Data de nascimento não encontrada no documento'
-                }
-            }
-
-        except Exception as e:
-            print(f"Erro no processamento do documento: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Erro no processamento do documento: {str(e)}"
-            )
-
-
-# Configuração dos templates
-templates = Jinja2Templates(directory="templates")
 
 # Inicializa FastAPI
 app = FastAPI(
     title="Serviço OCR AWS",
-    description="API para extração de texto e busca de nomes em documentos usando AWS Textract",
+    description="API para extração de texto e verificação de idade em documentos",
     version="1.0.0"
 )
 
@@ -275,15 +33,321 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Configuração dos templates
+templates = Jinja2Templates(directory="templates")
+
+
+class OCRService:
+    def __init__(self, aws_access_key_id: str, aws_secret_access_key: str, region_name: str):
+        self.textract = boto3.client(
+            'textract',
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            region_name=region_name
+        )
+        self.s3 = boto3.client(
+            's3',
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            region_name=region_name
+        )
+
+    def upload_to_s3(self, file_content: bytes, filename: str, bucket: str) -> str:
+        try:
+            print(f"Iniciando upload para S3: bucket={bucket}, filename={filename}")
+            bucket_name = bucket.split(":")[-1] if "arn:aws:s3" in bucket else bucket
+
+            try:
+                self.s3.head_bucket(Bucket=bucket_name)
+            except Exception as e:
+                print(f"Erro ao verificar bucket: {str(e)}")
+                raise
+
+            self.s3.put_object(
+                Bucket=bucket_name,
+                Key=filename,
+                Body=file_content
+            )
+            return f"s3://{bucket_name}/{filename}"
+        except Exception as e:
+            print(f"Erro no upload para S3: {str(e)}")
+            raise
+
+    def extract_text_from_document(self, bucket: str, document_key: str) -> str:
+        try:
+            response = self.textract.start_document_text_detection(
+                DocumentLocation={
+                    'S3Object': {
+                        'Bucket': bucket,
+                        'Name': document_key
+                    }
+                }
+            )
+            job_id = response['JobId']
+
+            while True:
+                response = self.textract.get_document_text_detection(JobId=job_id)
+                status = response['JobStatus']
+                if status in ['SUCCEEDED', 'FAILED']:
+                    break
+
+            if status == 'FAILED':
+                raise HTTPException(status_code=500, detail='Falha na extração do texto')
+
+            text = ""
+            for item in response['Blocks']:
+                if item['BlockType'] == 'LINE':
+                    text += item['Text'] + "\n"
+
+            return text
+        except Exception as e:
+            print(f"Erro na extração de texto: {str(e)}")
+            raise
+
+    def extract_date_of_birth(self, text: str) -> str:
+        # Encontra todas as datas no formato dd/mm/yyyy
+        pattern = r'\d{2}/\d{2}/\d{4}'
+        dates = re.findall(pattern, text)
+
+        print(f"Datas encontradas no documento: {dates}")
+
+        if len(dates) >= 2:
+            date_objects = []
+            for date_str in dates:
+                try:
+                    date_obj = datetime.strptime(date_str, '%d/%m/%Y')
+                    date_objects.append((date_str, date_obj))
+                except ValueError:
+                    continue
+
+            if date_objects:
+                date_objects.sort(key=lambda x: x[1])  # Ordena pela data
+                oldest_date = date_objects[0][0]  # Pega a string da data mais antiga
+                print(f"Data mais antiga (nascimento): {oldest_date}")
+                return oldest_date
+
+        print("Não foi possível encontrar duas datas válidas para comparação")
+        return None
+
+    def calculate_age(self, date_of_birth: str) -> Dict[str, Any]:
+        try:
+            dob = datetime.strptime(date_of_birth, '%d/%m/%Y')
+            today = datetime.now()
+            age = today.year - dob.year
+
+            if today.month < dob.month or (today.month == dob.month and today.day < dob.day):
+                age -= 1
+
+            return {
+                "age": age,
+                "is_underage": age < 18,
+                "date_of_birth": date_of_birth
+            }
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Erro ao calcular idade: {str(e)}")
+
+    async def process_file(self, filename: str, content: bytes, bucket: str) -> Dict[str, Any]:
+        try:
+            # Upload para S3
+            s3_path = self.upload_to_s3(content, filename, bucket)
+
+            # Extrai texto
+            extracted_text = self.extract_text_from_document(bucket, filename)
+
+            # Procura data de nascimento
+            date_of_birth = self.extract_date_of_birth(extracted_text)
+            age_info = None
+            if date_of_birth:
+                age_info = self.calculate_age(date_of_birth)
+
+            # Remove arquivo do S3
+            try:
+                self.s3.delete_object(Bucket=bucket, Key=filename)
+            except Exception as e:
+                print(f"Erro ao remover arquivo do S3: {str(e)}")
+
+            return {
+                'filename': filename,
+                'text': extracted_text,
+                'age_verification': age_info if age_info else {
+                    'error': 'Data de nascimento não encontrada'
+                }
+            }
+        except Exception as e:
+            print(f"Erro ao processar arquivo {filename}: {str(e)}")
+            return {
+                'filename': filename,
+                'error': str(e)
+            }
+
+    async def process_stream(self, file_content: bytes) -> AsyncGenerator[str, None]:
+        try:
+            zip_buffer = BytesIO(file_content)
+            results = {
+                'documents': [],
+                'summary': {
+                    'total_processed': 0,
+                    'underage_count': 0,
+                    'adult_count': 0,
+                    'error_count': 0,
+                    'underage_list': [],
+                    'error_files': []
+                }
+            }
+
+            with zipfile.ZipFile(zip_buffer) as zip_file:
+                valid_files = [f for f in zip_file.namelist()
+                               if f.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg'))]
+
+                total_files = len(valid_files)
+                processed = 0
+
+                # Processa arquivos em lotes de 5
+                batch_size = 5
+                for i in range(0, len(valid_files), batch_size):
+                    batch = valid_files[i:i + batch_size]
+
+                    # Prepara o processamento em paralelo
+                    tasks = []
+                    for filename in batch:
+                        file_content = zip_file.read(filename)
+                        tasks.append(self.process_file(
+                            filename=filename,
+                            content=file_content,
+                            bucket=os.getenv('S3_BUCKET')
+                        ))
+
+                    # Processa o lote em paralelo
+                    batch_results = await asyncio.gather(*tasks)
+
+                    # Processa os resultados do lote
+                    for result in batch_results:
+                        # Atualiza estatísticas
+                        results['summary']['total_processed'] += 1
+
+                        if 'error' in result:
+                            results['summary']['error_count'] += 1
+                            results['summary']['error_files'].append({
+                                'filename': result['filename'],
+                                'error': result['error']
+                            })
+                        elif result.get('age_verification'):
+                            age_info = result['age_verification']
+                            if age_info.get('is_underage'):
+                                results['summary']['underage_count'] += 1
+                                name = os.path.splitext(os.path.basename(result['filename']))[0]
+                                results['summary']['underage_list'].append({
+                                    'name': name,
+                                    'age': age_info['age'],
+                                    'date_of_birth': age_info['date_of_birth'],
+                                    'filename': result['filename']
+                                })
+                            else:
+                                results['summary']['adult_count'] += 1
+
+                        results['documents'].append(result)
+                        processed += 1
+
+                        # Envia atualização de progresso
+                        progress_update = {
+                            'type': 'progress',
+                            'total': total_files,
+                            'processed': processed,
+                            'current_file': result['filename']
+                        }
+                        yield json.dumps(progress_update) + '\n'
+
+            # Gera arquivo de relatório se necessário
+            if results['summary']['underage_list'] or results['summary']['error_files']:
+                report_content = "RELATÓRIO DE VERIFICAÇÃO DE IDADE\n"
+                report_content += "=" * 50 + "\n\n"
+
+                if results['summary']['underage_list']:
+                    report_content += "MENORES DE IDADE ENCONTRADOS:\n"
+                    report_content += "-" * 30 + "\n"
+                    for person in results['summary']['underage_list']:
+                        report_content += f"Nome: {person['name']}\n"
+                        report_content += f"Idade: {person['age']}\n"
+                        report_content += f"Data de Nascimento: {person['date_of_birth']}\n"
+                        report_content += f"Arquivo: {person['filename']}\n\n"
+
+                if results['summary']['error_files']:
+                    report_content += "\nARQUIVOS COM ERRO:\n"
+                    report_content += "-" * 30 + "\n"
+                    for file in results['summary']['error_files']:
+                        report_content += f"Arquivo: {file['filename']}\n"
+                        report_content += f"Erro: {file['error']}\n\n"
+
+                # Salva o relatório
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                report_filename = f"relatorio_verificacao_{timestamp}.txt"
+                with open(report_filename, "w", encoding="utf-8") as f:
+                    f.write(report_content)
+
+                results['report_filename'] = report_filename
+
+            # Envia resultado final
+            yield json.dumps(results)
+
+        except Exception as e:
+            error_response = {
+                'status': 'error',
+                'message': str(e)
+            }
+            yield json.dumps(error_response)
+
+            # Gera arquivo de relatório se necessário
+            if results['summary']['underage_list'] or results['summary']['error_files']:
+                report_content = "RELATÓRIO DE VERIFICAÇÃO DE IDADE\n"
+                report_content += "=" * 50 + "\n\n"
+
+                if results['summary']['underage_list']:
+                    report_content += "MENORES DE IDADE ENCONTRADOS:\n"
+                    report_content += "-" * 30 + "\n"
+                    for person in results['summary']['underage_list']:
+                        report_content += f"Nome: {person['name']}\n"
+                        report_content += f"Idade: {person['age']}\n"
+                        report_content += f"Data de Nascimento: {person['date_of_birth']}\n"
+                        report_content += f"Arquivo: {person['filename']}\n\n"
+
+                if results['summary']['error_files']:
+                    report_content += "\nARQUIVOS COM ERRO:\n"
+                    report_content += "-" * 30 + "\n"
+                    for file in results['summary']['error_files']:
+                        report_content += f"Arquivo: {file['filename']}\n"
+                        report_content += f"Erro: {file['error']}\n\n"
+
+                # Salva o relatório
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                report_filename = f"relatorio_verificacao_{timestamp}.txt"
+                with open(report_filename, "w", encoding="utf-8") as f:
+                    f.write(report_content)
+
+                results['report_filename'] = report_filename
+
+            # Envia resultado final
+            yield json.dumps(results)
+
+        except Exception as e:
+            error_response = {
+                'status': 'error',
+                'message': str(e)
+            }
+            yield json.dumps(error_response)
+
+
 # Inicializa serviço OCR com verificação
 aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
 aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
 aws_region = os.getenv('AWS_REGION', 'us-east-2')
+bucket = os.getenv('S3_BUCKET')
 
-if not aws_access_key or not aws_secret_key:
-    print("⚠️ Atenção: Credenciais AWS não configuradas!")
+if not all([aws_access_key, aws_secret_key, bucket]):
+    print("⚠️ Atenção: Credenciais AWS ou bucket não configurados!")
+    print(f"AWS_ACCESS_KEY_ID: {'Configurado' if aws_access_key else 'Não configurado'}")
+    print(f"AWS_SECRET_ACCESS_KEY: {'Configurado' if aws_secret_key else 'Não configurado'}")
+    print(f"S3_BUCKET: {'Configurado' if bucket else 'Não configurado'}")
 
-# Inicializa o serviço OCR
 ocr_service = OCRService(
     aws_access_key_id=aws_access_key,
     aws_secret_access_key=aws_secret_key,
@@ -293,52 +357,28 @@ ocr_service = OCRService(
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """
-    Renderiza a página inicial com o formulário de upload
-    """
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-# Rota de healthcheck
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
-
-
 @app.post("/process")
-async def process_document(
-        file: UploadFile = File(...),
-        search_request: str = Form(...),
-):
+async def process_documents(file: UploadFile = File(...)):
     """
-    Processa um documento e busca nomes
-    - file: Arquivo a ser processado (PDF, PNG, JPEG)
-    - search_request: JSON string contendo lista de nomes para buscar
+    Processa arquivo ZIP contendo documentos
     """
     try:
-        # Valida e processa o JSON de busca
-        search_data = json.loads(search_request)
-        if not isinstance(search_data.get('names'), list):
-            raise HTTPException(status_code=400, detail="Campo 'names' deve ser uma lista")
+        if not file.filename.endswith('.zip'):
+            raise HTTPException(status_code=400, detail="Apenas arquivos ZIP são aceitos")
 
-        # Lê o conteúdo do arquivo
         file_content = await file.read()
-
-        # Processa o documento
-        result = ocr_service.process_document(
-            file_content=file_content,
-            filename=file.filename,
-            bucket=os.getenv('S3_BUCKET'),
-            registered_names=search_data['names']
+        return StreamingResponse(
+            ocr_service.process_stream(file_content),
+            media_type='application/x-ndjson'
         )
-
-        return result
-
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="JSON de busca inválido")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
+    import uvicorn
+
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
