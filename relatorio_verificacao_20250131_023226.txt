@@ -1,0 +1,15 @@
+RELATÓRIO DE VERIFICAÇÃO DE IDADE
+==================================================
+
+MENORES DE IDADE ENCONTRADOS:
+------------------------------
+Nome: ALEXANDRE MOTA ROCHA MARQUES
+Idade: 17
+Data de Nascimento: 11/11/2007
+Arquivo: ALEXANDRE MOTA ROCHA MARQUES.pdf
+
+Nome: ALEXANDRE MOTA ROCHA MARQUES
+Idade: 17
+Data de Nascimento: 11/11/2007
+Arquivo: ALEXANDRE MOTA ROCHA MARQUES.pdf
+

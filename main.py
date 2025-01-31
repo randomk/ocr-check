@@ -1,5 +1,5 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request
-from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 import boto3
@@ -44,8 +44,13 @@ class OCRService:
         )
         self.bucket = os.getenv('S3_BUCKET')
 
+    def normalize_filename(self, filename: str) -> str:
+        """Normaliza o nome do arquivo para evitar espaços e caracteres especiais."""
+        normalized = re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
+        return normalized
+
     def upload_zip_to_s3(self, file_content: bytes, process_id: str) -> str:
-        """Upload do ZIP para uma pasta temporária no S3"""
+        """Upload do ZIP para uma pasta temporária no S3."""
         zip_key = f"temp/{process_id}/upload.zip"
         try:
             self.s3.put_object(
@@ -59,7 +64,7 @@ class OCRService:
             raise
 
     async def extract_zip_in_s3(self, zip_key: str, process_id: str) -> List[str]:
-        """Extrai o ZIP diretamente no S3"""
+        """Extrai o ZIP diretamente no S3."""
         try:
             # Lê o ZIP do S3
             response = self.s3.get_object(Bucket=self.bucket, Key=zip_key)
@@ -69,11 +74,14 @@ class OCRService:
             with zipfile.ZipFile(BytesIO(zip_content)) as zip_ref:
                 for file_info in zip_ref.filelist:
                     if file_info.filename.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg')):
+                        # Normaliza o nome do arquivo
+                        normalized_filename = self.normalize_filename(file_info.filename)
+
                         # Lê o arquivo do ZIP
                         file_content = zip_ref.read(file_info.filename)
 
                         # Define o novo caminho no S3
-                        new_key = f"temp/{process_id}/extracted/{file_info.filename}"
+                        new_key = f"temp/{process_id}/extracted/{normalized_filename}"
 
                         # Upload do arquivo extraído
                         self.s3.put_object(
@@ -92,10 +100,13 @@ class OCRService:
             raise
 
     async def process_documents_in_parallel(self, file_keys: List[str]) -> List[Dict]:
-        """Processa múltiplos documentos em paralelo"""
+        """Processa múltiplos documentos em paralelo."""
 
         async def process_single_document(file_key: str):
             try:
+                # Verifica se o objeto existe no S3
+                self.s3.head_object(Bucket=self.bucket, Key=file_key)
+
                 # Inicia job do Textract
                 response = self.textract.start_document_text_detection(
                     DocumentLocation={
@@ -273,7 +284,6 @@ class OCRService:
                     results.append(result)
 
                     # Envia progresso do processamento
-                    # Envia progresso do processamento
                     yield json.dumps({
                         'type': 'progress',
                         'processed': index,
@@ -405,6 +415,16 @@ async def process_documents(file: UploadFile = File(...)):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/download/{filename}")
+async def download_file(filename: str):
+    """Rota para download do relatório"""
+    file_path = f"./{filename}"
+    if os.path.exists(file_path):
+        return FileResponse(file_path, filename=filename)
+    else:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
 
 
 if __name__ == "__main__":
